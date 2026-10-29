@@ -1,0 +1,554 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>Secret Santa Quest</title>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+<style>
+  html,body{margin:0;height:100%;background:#0d1117;display:flex;flex-direction:column;align-items:center;justify-content:center;overflow:hidden;touch-action:none;user-select:none}
+  #frame{width:min(100vw,150vh);aspect-ratio:3/2;border:6px solid #2b2d3c;border-radius:14px;box-sizing:border-box;background:#000;box-shadow:0 0 0 3px #c0392b,0 10px 40px #000a}
+  canvas{width:100%;height:100%;display:block;image-rendering:pixelated}
+  #pad{display:none;width:100%;max-width:480px;justify-content:space-between;align-items:center;padding:10px 16px;box-sizing:border-box}
+  @media (pointer:coarse){#pad{display:flex}}
+  #dp{display:grid;grid-template-columns:repeat(3,52px);grid-template-rows:repeat(3,52px);gap:2px}
+  #pad button{border:0;border-radius:10px;background:#2b2d3c;color:#fff;font-size:20px}
+  #pad button:active{background:#c0392b}
+  #ab{width:72px;height:72px;border-radius:50%!important;background:#c0392b!important;font-weight:bold}
+</style>
+</head>
+<body>
+<div id="frame"><canvas id="c" width="240" height="160"></canvas></div>
+<div id="pad">
+  <div id="dp">
+    <span></span><button data-d="up">▲</button><span></span>
+    <button data-d="left">◀</button><span></span><button data-d="right">▶</button>
+    <span></span><button data-d="down">▼</button><span></span>
+  </div>
+  <button id="ab">A</button>
+</div>
+
+<script>
+/* ================= EDITA AQUÍ: tus amigos y sprites =================
+   Ahorita los personajes se dibujan solos con colores (placeholder).
+   Cuando tengas tus sprites: sprite: "sprites/alex.png" (16x16 o cuadrado)       */
+const FRIENDS = [
+  { name: "Alex",   shirt: "#3b82f6", hair: "#5a3a1a", skin: "#f2c9a0", pants: "#33406b", hat: "#c0392b", sprite: null },
+  { name: "Jamie",  shirt: "#e67e22", hair: "#1e1e24", skin: "#c68642", pants: "#3a3a4a", hat: "#2e8b57", sprite: null },
+  { name: "Sam",    shirt: "#9b59b6", hair: "#e0b040", skin: "#f7d6b5", pants: "#2c3e50", hat: "#c0392b", sprite: null },
+  { name: "Riley",  shirt: "#16a085", hair: "#8b2d2d", skin: "#e8b88a", pants: "#4a4a5a", hat: "#2e8b57", sprite: null },
+  { name: "Casey",  shirt: "#e84a8a", hair: "#2a1a10", skin: "#8d5524", pants: "#33406b", hat: "#c0392b", sprite: null },
+  { name: "Morgan", shirt: "#f1c40f", hair: "#d8d8e0", skin: "#f2c9a0", pants: "#3a3a4a", hat: "#2e8b57", sprite: null },
+];
+const SANTA = { name: "Santa", santa: true, shirt: "#d63a35", hair: "#fff", skin: "#f2c9a0", pants: "#8e2423", hat: "#d63a35", sprite: null };
+/* ==================================================================== */
+
+const W = 240, H = 160, T = 16, MW = 30, MH = 20;
+const cv = document.getElementById("c"), ctx = cv.getContext("2d");
+ctx.imageSmoothingEnabled = false;
+const FONT = "8px 'Press Start 2P', monospace", BIG = "16px 'Press Start 2P', monospace";
+const R = (c, x, y, w, h) => { ctx.fillStyle = c; ctx.fillRect(x, y, w, h); };
+const rnd = (a, b) => a + Math.random() * (b - a);
+const pick = a => a[Math.floor(Math.random() * a.length)];
+const shuffle = a => a.map(v => [Math.random(), v]).sort((x, y) => x[0] - y[0]).map(x => x[1]);
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+
+/* ---------- audio (bips estilo consola) ---------- */
+let ac;
+function beep(f = 660, d = .05, v = .04) {
+  try {
+    ac = ac || new (window.AudioContext || window.webkitAudioContext)();
+    const o = ac.createOscillator(), g = ac.createGain();
+    o.type = "square"; o.frequency.value = f; g.gain.value = v;
+    o.connect(g); g.connect(ac.destination); o.start(); o.stop(ac.currentTime + d);
+  } catch (e) {}
+}
+
+/* ---------- sprites de personajes (pixel art generado) ---------- */
+const mk = (fn, w = 16, h = 16) => {
+  const c = document.createElement("canvas"); c.width = w; c.height = h;
+  const g = c.getContext("2d"); g.imageSmoothingEnabled = false;
+  fn((col, x, y, ww, hh) => { g.fillStyle = col; g.fillRect(x, y, ww, hh); }, g);
+  return c;
+};
+function drawChar(r, c, dir, f) {
+  const S = [], add = (col, x, y, w, h) => S.push([col, x, y, w, h]);
+  const l1 = f === 1 ? 1 : 0, l2 = f === 2 ? 1 : 0, side = dir === "left" || dir === "right";
+  add(c.pants, 5, 12 + l1, 3, 3 - l1); add(c.pants, 8, 12 + l2, 3, 3 - l2);
+  if (side) { add(c.shirt, 5, 7, 6, 5); add(c.shirt, 6, 8, 4, 3); add(c.skin, 7, 11, 2, 1); }
+  else { add(c.shirt, 4, 7, 8, 5); add(c.shirt, 3, 8, 1, 3); add(c.shirt, 12, 8, 1, 3); add(c.skin, 3, 11, 1, 1); add(c.skin, 12, 11, 1, 1); }
+  if (c.santa) add("#222", 4, 10, 8, 1);
+  add(c.skin, 4, 3, 8, 5);
+  if (dir === "down") { add(c.hair, 4, 4, 1, 2); add(c.hair, 11, 4, 1, 2); add("#222", 6, 5, 1, 1); add("#222", 9, 5, 1, 1); }
+  if (dir === "up") add(c.hair, 4, 4, 8, 4);
+  if (dir === "left") { add(c.hair, 7, 4, 5, 4); add("#222", 5, 5, 1, 1); }
+  if (dir === "right") { add(c.hair, 4, 4, 5, 4); add("#222", 10, 5, 1, 1); }
+  if (c.santa) {
+    if (dir === "down") add("#fff", 5, 6, 6, 3);
+    if (dir === "left") add("#fff", 4, 6, 4, 3);
+    if (dir === "right") add("#fff", 8, 6, 4, 3);
+    if (dir === "up") add("#fff", 4, 7, 8, 1);
+  }
+  add(c.hat, 5, 1, 6, 1); add(c.hat, 4, 2, 8, 1); add("#fff", 4, 3, 8, 1);
+  const px = dir === "right" || dir === "up" ? 2 : 11;
+  add("#fff", px, 0, 2, 2);
+  for (const [dx, dy] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) for (const [, x, y, w, h] of S) r("#1f1f2e", x + dx, y + dy, w, h);
+  for (const [col, x, y, w, h] of S) r(col, x, y, w, h);
+}
+function prep(p) {
+  p.spr = {};
+  for (const d of ["down", "up", "left", "right"]) p.spr[d] = [0, 1, 2].map(f => mk(r => drawChar(r, p, d, f)));
+  if (p.sprite) { p.img = new Image(); p.img.src = p.sprite; }
+}
+FRIENDS.forEach(prep); prep(SANTA);
+function drawPerson(p, x, y, dir = "down", frame = 0, scale = 1, bob = 0) {
+  if (p.img && p.img.complete && p.img.naturalWidth) ctx.drawImage(p.img, x, y - bob, 16 * scale, 16 * scale);
+  else ctx.drawImage(p.spr[dir][frame], x, y, 16 * scale, 16 * scale);
+}
+
+/* ---------- tiles (pixel art) ---------- */
+const TILES = {};
+const snowBase = r => r("#eef3fb", 0, 0, 16, 16);
+const shadow = r => r("rgba(110,130,170,.35)", 2, 13, 12, 2);
+TILES.snow = [0, 1, 2].map(v => mk(r => {
+  snowBase(r);
+  [[[3, 4], [11, 9], [6, 13]], [[12, 3], [5, 8], [9, 14]], [[2, 11], [10, 5], [14, 13]]][v]
+    .forEach(([x, y]) => { r("#d3e0f3", x, y, 2, 1); r("#fff", x, y - 1, 1, 1); });
+}));
+TILES[","] = mk(r => {
+  r("#d9bb8f", 0, 0, 16, 16);
+  r("#bf9c6c", 0, 0, 16, 1); r("#bf9c6c", 0, 8, 16, 1);
+  r("#bf9c6c", 0, 0, 1, 8); r("#bf9c6c", 8, 0, 1, 8); r("#bf9c6c", 4, 8, 1, 8); r("#bf9c6c", 12, 8, 1, 8);
+  r("#e8d1ac", 2, 2, 4, 1); r("#e8d1ac", 10, 10, 4, 1);
+});
+TILES.T = mk(r => {
+  snowBase(r); shadow(r);
+  r("#6b4423", 7, 12, 2, 3);
+  r("#1c6b3a", 2, 9, 12, 3); r("#1c6b3a", 3, 6, 10, 3); r("#1c6b3a", 5, 3, 6, 3); r("#1c6b3a", 6, 1, 4, 2);
+  r("#2e8f54", 8, 9, 6, 2); r("#2e8f54", 8, 6, 5, 2); r("#2e8f54", 8, 3, 3, 2);
+  r("#fff", 3, 9, 3, 1); r("#fff", 5, 6, 3, 1); r("#fff", 6, 3, 2, 1); r("#fff", 7, 1, 2, 1);
+  r("#ff4d4d", 4, 10, 1, 1); r("#ffd54a", 9, 7, 1, 1); r("#4aa8ff", 7, 4, 1, 1); r("#ffd54a", 11, 10, 1, 1);
+});
+TILES.r = mk(r => {
+  r("#b8312f", 0, 0, 16, 16);
+  [4, 8, 12].forEach(y => r("#8e2423", 0, y, 16, 1));
+  r("#8e2423", 4, 1, 1, 3); r("#8e2423", 12, 1, 1, 3); r("#8e2423", 8, 5, 1, 3); r("#8e2423", 0, 5, 1, 3);
+  r("#8e2423", 4, 9, 1, 3); r("#8e2423", 12, 9, 1, 3);
+  r("#fff", 0, 0, 16, 3); r("#e4ecf7", 0, 3, 16, 1); r("#fff", 2, 3, 3, 1); r("#fff", 9, 3, 4, 1);
+  r("#5e1716", 0, 14, 16, 2);
+});
+const wall = r => { r("#f3e3c3", 0, 0, 16, 16); [5, 10, 15].forEach(y => r("#dcc79e", 0, y, 16, 1)); };
+TILES.w = mk(r => wall(r));
+TILES.h = mk(r => {
+  wall(r);
+  r("#7a4a28", 3, 2, 10, 10); r("#ffe27a", 4, 3, 8, 8); r("#7a4a28", 7, 3, 2, 8); r("#7a4a28", 4, 6, 8, 1);
+  r("#fff6c0", 4, 3, 3, 3); r("#fff", 2, 12, 12, 1);
+});
+TILES.d = mk(r => {
+  wall(r);
+  r("#6b3f1f", 3, 1, 10, 15); r("#7a4a28", 4, 2, 8, 14);
+  r("#2f8f50", 6, 4, 4, 4); r("#7a4a28", 7, 5, 2, 2); r("#ff4d4d", 7, 8, 2, 1);
+  r("#ffd54a", 10, 10, 1, 2); r("#c0392b", 3, 15, 10, 1);
+});
+TILES.l = mk(r => {
+  snowBase(r); shadow(r);
+  r("rgba(255,213,74,.28)", 2, 0, 12, 9);
+  r("#2f3040", 7, 6, 2, 9); r("#2f3040", 6, 14, 4, 1);
+  r("#2f3040", 5, 1, 6, 1); r("#ffd54a", 5, 2, 6, 4); r("#fff6c0", 6, 3, 4, 2); r("#2f3040", 5, 6, 6, 1);
+});
+TILES.g = mk(r => {
+  snowBase(r); shadow(r);
+  r("#c0392b", 1, 7, 8, 8); r("#ffd54a", 4, 7, 2, 8); r("#ffd54a", 1, 10, 8, 2); r("#ffd54a", 3, 5, 2, 2); r("#ffd54a", 5, 5, 2, 2);
+  r("#2e8b57", 9, 10, 6, 5); r("#fff", 11, 10, 2, 5); r("#fff", 9, 12, 6, 1); r("#fff", 11, 8, 2, 2);
+});
+TILES.t = mk(r => {
+  snowBase(r); shadow(r);
+  r("#7a4a28", 1, 13, 2, 3); r("#7a4a28", 13, 13, 2, 3);
+  r("#c0392b", 0, 6, 16, 8); r("#a02a22", 0, 9, 16, 1); r("#fff", 0, 6, 16, 1);
+  r("#fff", 0, 13, 4, 1); r("#fff", 8, 13, 4, 1);
+  r("#f8c8dc", 3, 3, 7, 3); r("#fff", 3, 3, 7, 1); r("#4aa8ff", 6, 1, 1, 2); r("#ffd54a", 6, 0, 1, 1);
+  r("#fff", 12, 3, 2, 3); r("#e74c3c", 12, 3, 2, 1);
+});
+const balloon = (r, col, x, y, w, h) => { r(col, x + 1, y, w - 2, h); r(col, x, y + 1, w, h - 2); r("rgba(255,255,255,.65)", x + 1, y + 1, 1, 2); };
+TILES.b = mk(r => {
+  snowBase(r);
+  r("#8a8a9a", 4, 9, 1, 7); r("#8a8a9a", 12, 8, 1, 8); r("#8a8a9a", 8, 12, 1, 4);
+  balloon(r, "#e74c3c", 1, 2, 6, 7); balloon(r, "#ffd54a", 9, 1, 6, 7); balloon(r, "#4aa8ff", 5, 5, 6, 7);
+  r("#c0392b", 6, 14, 4, 2);
+});
+TILES.s = mk(r => {
+  snowBase(r); shadow(r);
+  r("#fff", 4, 8, 8, 7); r("#fff", 3, 9, 10, 5); r("#fff", 5, 3, 6, 6); r("#cfdcf0", 3, 12, 1, 2); r("#cfdcf0", 12, 12, 1, 2);
+  r("#222", 6, 5, 1, 1); r("#222", 9, 5, 1, 1); r("#ff8c1a", 7, 6, 3, 1);
+  r("#c0392b", 5, 8, 6, 2); r("#c0392b", 9, 10, 2, 3);
+  r("#222", 8, 11, 1, 1); r("#222", 8, 13, 1, 1);
+  r("#c0392b", 5, 0, 6, 2); r("#fff", 5, 2, 6, 1); r("#fff", 10, 0, 2, 2);
+});
+TILES.f = mk(r => {
+  snowBase(r);
+  r("#8b5a2b", 2, 5, 2, 10); r("#8b5a2b", 12, 5, 2, 10);
+  r("#a06a35", 0, 7, 16, 2); r("#a06a35", 0, 11, 16, 2);
+  r("#fff", 0, 6, 16, 1); r("#fff", 2, 4, 2, 1); r("#fff", 12, 4, 2, 1);
+});
+/* árbol navideño gigante 32x32 */
+const BIGTREE = mk(r => {
+  r("#6b4423", 14, 27, 4, 5);
+  for (let y = 4; y < 28; y++) {
+    const tier = Math.floor((y - 4) / 8), w = Math.min(30, 4 + (y - 4 - tier * 8) * 2 + tier * 6 + 2);
+    const x = 16 - w / 2;
+    r("#1c6b3a", x, y, w, 1); r("#2e8f54", 16, y, w / 2, 1);
+    if ((y - 4) % 8 === 0) r("#fff", x, y, Math.max(2, w / 3), 1);
+  }
+  r("#c0392b", 3, 28, 5, 4); r("#ffd54a", 5, 28, 1, 4); r("#3b82f6", 24, 29, 5, 3); r("#fff", 26, 29, 1, 3);
+  r("#ffd54a", 15, 0, 3, 3); r("#ffd54a", 14, 1, 5, 1);
+}, 32, 32);
+const TREE_LIGHTS = [[16, 8], [12, 10], [20, 10], [10, 15], [16, 14], [22, 15], [7, 22], [13, 21], [19, 23], [25, 22], [16, 19], [9, 26]];
+const TREE_X = 14, TREE_Y = 9;
+
+/* ---------- mapa ---------- */
+const map = Array.from({ length: MH }, () => Array(MW).fill("."));
+const put = (x, y, c) => { if (x >= 0 && y >= 0 && x < MW && y < MH) map[y][x] = c; };
+const putIf = (x, y, c) => { if (map[y] && map[y][x] === ".") map[y][x] = c; };
+const rect = (x1, y1, x2, y2, c) => { for (let y = y1; y <= y2; y++) for (let x = x1; x <= x2; x++) put(x, y, c); };
+for (let x = 0; x < MW; x++) { put(x, 0, "T"); put(x, MH - 1, "T"); }
+for (let y = 0; y < MH; y++) { put(0, y, "T"); put(MW - 1, y, "T"); }
+rect(14, 1, 15, 18, ",");            // calle central
+rect(4, 5, 4, 9, ","); rect(4, 9, 13, 9, ",");
+rect(25, 5, 25, 9, ","); rect(15, 9, 25, 9, ",");
+rect(4, 17, 25, 17, ",");           // calle de abajo
+rect(9, 6, 20, 13, ",");            // plaza
+const house = (x, y) => { rect(x, y, x + 2, y, "r"); put(x, y + 1, "h"); put(x + 1, y + 1, "w"); put(x + 2, y + 1, "h"); put(x, y + 2, "w"); put(x + 1, y + 2, "d"); put(x + 2, y + 2, "w"); };
+house(3, 2); house(24, 2); house(3, 14); house(24, 14);
+rect(14, TREE_Y, 15, TREE_Y + 1, "X");
+[[11, 7], [12, 7], [17, 7], [18, 7], [11, 12], [12, 12], [17, 12], [18, 12]].forEach(([x, y]) => put(x, y, "t"));
+[[10, 7], [19, 7], [10, 12], [19, 12]].forEach(([x, y]) => put(x, y, "b"));
+[[9, 6], [20, 6], [9, 13], [20, 13]].forEach(([x, y]) => put(x, y, "g"));
+[[9, 8], [9, 11], [20, 8], [20, 11], [13, 3], [16, 3], [13, 6], [16, 6], [8, 16], [21, 16]].forEach(([x, y]) => put(x, y, "l"));
+[[7, 10], [22, 10], [6, 3], [23, 14]].forEach(([x, y]) => put(x, y, "s"));
+for (let x = 2; x <= 7; x++) if (x !== 4) { put(x, 7, "f"); put(x, 12, "f"); }
+for (let x = 22; x <= 27; x++) if (x !== 25) { put(x, 7, "f"); put(x, 12, "f"); }
+[[8, 2], [9, 3], [7, 4], [20, 2], [21, 3], [22, 4], [2, 10], [2, 11], [27, 10], [27, 11], [8, 15], [9, 16], [20, 15], [21, 16], [11, 18], [17, 18], [6, 13], [3, 8], [26, 8]]
+  .forEach(([x, y]) => putIf(x, y, "T"));
+for (let x = 1; x < MW - 1; x++) { if ((x * 7) % 5 < 2) putIf(x, 1, "T"); if ((x * 11) % 5 < 2) putIf(x, MH - 2, "T"); }
+const SOLID = new Set("TrwhdlgftbsX".split(""));
+const solidAt = (x, y) => x < 0 || y < 0 || x >= MW || y >= MH || SOLID.has(map[y][x]);
+
+/* ---------- estado ---------- */
+const DIRS = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
+const OPP = { up: "down", down: "up", left: "right", right: "left" };
+let mode = "title", me, player, ents = [], santaEnt, target;
+let dlg = null, menu = null, t = 0, fade = 0, confetti = [];
+const held = {}, pressed = {};
+let lastDir = null;
+const snow = Array.from({ length: 45 }, () => ({ x: rnd(0, W), y: rnd(0, H), v: rnd(.25, .8), p: rnd(0, 6) }));
+
+function bfs(sx, sy) {
+  const d = Array.from({ length: MH }, () => Array(MW).fill(-1)); d[sy][sx] = 0;
+  const q = [[sx, sy]];
+  for (let i = 0; i < q.length; i++) {
+    const [x, y] = q[i];
+    for (const k in DIRS) {
+      const nx = x + DIRS[k][0], ny = y + DIRS[k][1];
+      if (!solidAt(nx, ny) && d[ny][nx] < 0) { d[ny][nx] = d[y][x] + 1; q.push([nx, ny]); }
+    }
+  }
+  return d;
+}
+const mkEnt = (f, tx, ty) => ({ f, tx, ty, x: tx * T, y: ty * T, dir: "down", moving: false, prog: 0, step: 0, home: [tx, ty], wait: 0, ai: rnd(30, 120) });
+const occupied = (x, y) => (player && player.tx === x && player.ty === y) || ents.some(e => e.tx === x && e.ty === y);
+
+function startGame(i) {
+  me = FRIENDS[i]; menu = null; dlg = null;
+  const d = bfs(14, 18);
+  const cells = [];
+  for (let y = 0; y < MH; y++) for (let x = 0; x < MW; x++) if (d[y][x] >= 0) cells.push({ x, y, d: d[y][x] });
+  let far = cells.filter(c => c.d >= 18); if (!far.length) far = cells.filter(c => c.d >= 10);
+  const sc = pick(far);
+  player = mkEnt(me, 14, 18); player.dir = "up";
+  santaEnt = mkEnt(SANTA, sc.x, sc.y); santaEnt.santa = true;
+  ents = [santaEnt];
+  FRIENDS.filter(f => f !== me).forEach(f => {
+    const c = pick(cells.filter(c => c.d >= 4 && c.d <= 26 && !occupied(c.x, c.y)));
+    ents.push(mkEnt(f, c.x, c.y));
+  });
+  mode = "world"; fade = 1;
+  say([`¡Feliz Navidad, ${me.name}! Santa se escondió en la fiesta del pueblo.`, "¡Encuéntralo! Habla con tus amigos para conseguir pistas.", "Muévete con las FLECHAS y habla con Z o ENTER."]);
+}
+
+/* ---------- diálogo ---------- */
+function wrap(s, n = 26) {
+  const out = []; let line = "";
+  for (const w of s.split(" ")) {
+    if ((line + " " + w).trim().length > n) { out.push(line); line = w; } else line = (line + " " + w).trim();
+  }
+  if (line) out.push(line);
+  return out;
+}
+function say(msgs, cb, opt = {}) {
+  const pages = [];
+  [].concat(msgs).forEach(m => { const ls = wrap(m); for (let i = 0; i < ls.length; i += 2) pages.push(ls.slice(i, i + 2)); });
+  dlg = { pages, i: 0, n: 0, cb, keep: !!opt.keep, locked: false };
+}
+function finishDlg() {
+  const cb = dlg.cb;
+  if (dlg.keep) dlg.locked = true; else dlg = null;
+  if (cb) cb();
+}
+function compass(dx, dy) {
+  const ax = Math.abs(dx), ay = Math.abs(dy);
+  const v = ay > ax * .5 ? (dy < 0 ? "nor" : "sur") : "", h = ax > ay * .5 ? (dx < 0 ? "oeste" : "este") : "";
+  if (v && h) return v + h;
+  return v ? (v === "nor" ? "norte" : "sur") : h;
+}
+function talkFriend(e) {
+  e.dir = OPP[player.dir];
+  const dx = santaEnt.tx - e.tx, dy = santaEnt.ty - e.ty, dist = Math.abs(dx) + Math.abs(dy), c = compass(dx, dy);
+  const line = pick([`¡Feliz Navidad! Oí cascabeles hacia el ${c}.`, `¿Santa? Creo que lo vi rumbo al ${c}.`, `¡Hola, ${me.name}! Santa anda por el ${c}.`]);
+  const close = dist < 8 ? "¡Está MUY cerca!" : dist < 18 ? "No debe estar tan lejos." : "Uf, está bastante lejos.";
+  say(`${e.f.name}: ${line} ${close}`);
+}
+function talkSanta() {
+  santaEnt.dir = OPP[player.dir]; beep(880, .12); setTimeout(() => beep(1175, .15), 120);
+  say([`¡Jo, jo, jo! ¡Me encontraste, ${me.name}!`, "Tengo 3 nombres para ti. ¿A quién le darás tu regalo?"], () => chooseGift(), { keep: true });
+}
+function chooseGift(names) {
+  names = names || shuffle(FRIENDS.filter(f => f !== me)).slice(0, 3);
+  menu = { items: names.map(f => f.name), cur: 0, top: 0, right: true, bottom: true, onSelect: i => confirmGift(names[i], names) };
+}
+function confirmGift(f, names) {
+  menu = null;
+  say(`¿Darle tu regalo a ${f.name}?`, () => {
+    menu = {
+      items: ["SÍ", "NO"], cur: 0, top: 0, right: true, bottom: true,
+      onSelect: j => {
+        menu = null;
+        if (j === 0) say([`¡Perfecto! Tu regalo es para ${f.name}.`, "¡Shhh! ¡Es un secreto!"], () => endGame(f));
+        else say("Mmm... piénsalo bien.", () => chooseGift(names), { keep: true });
+      }
+    };
+  }, { keep: true });
+}
+function endGame(f) {
+  target = f; mode = "end"; dlg = null;
+  confetti = Array.from({ length: 70 }, () => ({ x: rnd(0, W), y: rnd(-H, 0), vy: rnd(.4, 1.2), vx: rnd(-.3, .3), c: pick(["#ff4d4d", "#ffd54a", "#3bff7a", "#4aa8ff", "#fff", "#ff7ad9"]) }));
+  [523, 659, 784, 1047].forEach((n, i) => setTimeout(() => beep(n, .15), i * 120));
+}
+
+/* ---------- entradas ---------- */
+const keyDir = { arrowup: "up", w: "up", arrowdown: "down", s: "down", arrowleft: "left", a: "left", arrowright: "right", d: "right" };
+addEventListener("keydown", e => {
+  const k = e.key.toLowerCase();
+  if (keyDir[k]) {
+    const d = keyDir[k]; held[d] = true; lastDir = d;
+    if (d === "up") pressed.up = true; if (d === "down") pressed.down = true;
+    e.preventDefault();
+  } else if (["z", "enter", " "].includes(k)) { if (!e.repeat) pressed.a = true; e.preventDefault(); }
+});
+addEventListener("keyup", e => { const d = keyDir[e.key.toLowerCase()]; if (d) held[d] = false; });
+document.querySelectorAll("#dp button").forEach(b => {
+  const d = b.dataset.d;
+  b.addEventListener("pointerdown", e => { e.preventDefault(); held[d] = true; lastDir = d; if (d === "up") pressed.up = true; if (d === "down") pressed.down = true; });
+  ["pointerup", "pointerleave", "pointercancel"].forEach(ev => b.addEventListener(ev, () => held[d] = false));
+});
+document.getElementById("ab").addEventListener("pointerdown", e => { e.preventDefault(); pressed.a = true; });
+const heldDir = () => (lastDir && held[lastDir]) ? lastDir : ["up", "down", "left", "right"].find(d => held[d]) || null;
+
+/* ---------- lógica ---------- */
+function tryMove(e, dir) {
+  e.dir = dir;
+  const nx = e.tx + DIRS[dir][0], ny = e.ty + DIRS[dir][1];
+  if (solidAt(nx, ny) || occupied(nx, ny)) return false;
+  e.tx = nx; e.ty = ny; e.moving = true; e.prog = 0;
+  return true;
+}
+function stepEnt(e) {
+  if (!e.moving) return;
+  e.x += DIRS[e.dir][0] * 2; e.y += DIRS[e.dir][1] * 2; e.prog += 2;
+  if (e.prog >= T) { e.moving = false; e.prog = 0; e.x = e.tx * T; e.y = e.ty * T; e.step++; }
+}
+function update() {
+  t++;
+  snow.forEach(s => { s.y += s.v; s.x += Math.sin((t + s.p * 40) / 40) * .25; if (s.y > H) { s.y = -2; s.x = rnd(0, W); } });
+  if (fade > 0) fade = Math.max(0, fade - .03);
+  if (mode === "title") { if (pressed.a) { beep(784); mode = "select"; openSelect(); } }
+  else if (mode === "select") updateMenu();
+  else if (mode === "end") {
+    confetti.forEach(c => { c.y += c.vy; c.x += c.vx + Math.sin((t + c.x) / 15) * .2; if (c.y > H) { c.y = -3; c.x = rnd(0, W); } });
+    if (pressed.a) { beep(784); mode = "title"; }
+  } else if (mode === "world") {
+    ents.forEach(stepEnt); stepEnt(player);
+    if (menu) updateMenu();
+    else if (dlg) updateDlg();
+    else {
+      if (!player.moving) {
+        const d = heldDir();
+        if (d) {
+          if (player.dir !== d) { player.dir = d; player.wait = 5; }
+          else if (player.wait > 0) player.wait--;
+          else tryMove(player, d);
+        } else player.wait = 0;
+        if (pressed.a && !player.moving) {
+          const nx = player.tx + DIRS[player.dir][0], ny = player.ty + DIRS[player.dir][1];
+          const e = ents.find(e => e.tx === nx && e.ty === ny);
+          if (e) { beep(660, .06); e === santaEnt ? talkSanta() : talkFriend(e); }
+        }
+      }
+      ents.forEach(e => {
+        if (e === santaEnt || e.moving) return;
+        if (--e.ai <= 0) {
+          e.ai = rnd(60, 200);
+          const d = pick(Object.keys(DIRS)), nx = e.tx + DIRS[d][0], ny = e.ty + DIRS[d][1];
+          if (Math.abs(nx - e.home[0]) + Math.abs(ny - e.home[1]) <= 6) tryMove(e, d);
+        }
+      });
+    }
+  }
+  pressed.a = pressed.up = pressed.down = false;
+}
+function updateDlg() {
+  if (dlg.locked) return;
+  const total = dlg.pages[dlg.i].join("").length;
+  if (dlg.n < total) {
+    const before = Math.floor(dlg.n);
+    dlg.n = pressed.a ? total : dlg.n + .6;
+    if (Math.floor(dlg.n) !== before && Math.floor(dlg.n) % 2 === 0) beep(520, .02, .02);
+  } else if (pressed.a) {
+    beep(700, .04);
+    if (dlg.i < dlg.pages.length - 1) { dlg.i++; dlg.n = 0; } else finishDlg();
+  }
+}
+function updateMenu() {
+  if (!menu) return;
+  const n = menu.items.length;
+  if (pressed.up) { menu.cur = (menu.cur + n - 1) % n; beep(600, .03); }
+  if (pressed.down) { menu.cur = (menu.cur + 1) % n; beep(600, .03); }
+  if (pressed.a) { beep(880, .08); const m = menu; m.onSelect(m.cur); }
+}
+function openSelect() {
+  menu = { title: "¿QUIÉN ERES?", items: FRIENDS.map(f => f.name), cur: 0, top: 0, x: 112, y: 8, onSelect: i => startGame(i) };
+}
+
+/* ---------- dibujo ---------- */
+function box(x, y, w, h) {
+  R("#283048", x + 1, y, w - 2, h); R("#283048", x, y + 1, w, h - 2);
+  R("#c0392b", x + 2, y + 2, w - 4, h - 4); R("#fffdf4", x + 3, y + 3, w - 6, h - 6);
+}
+function txt(s, x, y, col = "#303040") { ctx.fillStyle = "#c4c4d0"; ctx.fillText(s, x + 1, y + 1); ctx.fillStyle = col; ctx.fillText(s, x, y); }
+function cursor(x, y) { R("#303040", x, y, 1, 8); R("#303040", x + 1, y + 1, 1, 6); R("#303040", x + 2, y + 2, 1, 4); R("#303040", x + 3, y + 3, 1, 2); }
+function drawMenu(m) {
+  const vis = Math.min(m.items.length, 6), rh = 14, hh = m.title ? 14 : 0;
+  const mw = Math.max(...m.items.map(s => s.length), m.title ? m.title.length : 0) * 8 + 28, mh = vis * rh + 12 + hh;
+  const x = m.right ? W - 4 - mw : m.x, y = m.bottom ? 108 - mh : m.y;
+  box(x, y, mw, mh);
+  if (m.title) txt(m.title, x + 10, y + 8, "#c0392b");
+  if (m.cur < m.top) m.top = m.cur;
+  if (m.cur >= m.top + vis) m.top = m.cur - vis + 1;
+  for (let k = 0; k < vis; k++) {
+    const i = m.top + k, yy = y + 8 + hh + k * rh;
+    txt(m.items[i], x + 20, yy);
+    if (i === m.cur) cursor(x + 9, yy);
+  }
+}
+function drawDlg() {
+  if (!dlg) return;
+  box(4, 112, 232, 44);
+  let left = Math.floor(dlg.n);
+  if (dlg.locked) left = 999;
+  dlg.pages[dlg.i].forEach((ln, k) => { txt(ln.slice(0, left), 14, 122 + k * 14); left = Math.max(0, left - ln.length); });
+  if (!dlg.locked && dlg.n >= dlg.pages[dlg.i].join("").length && Math.floor(t / 20) % 2) {
+    R("#c0392b", 222, 146, 7, 1); R("#c0392b", 223, 147, 5, 1); R("#c0392b", 224, 148, 3, 1); R("#c0392b", 225, 149, 1, 1);
+  }
+}
+function drawSnow() { ctx.fillStyle = "#fff"; snow.forEach(s => ctx.fillRect(Math.round(s.x), Math.round(s.y), 1, 1)); }
+function pine(x, y) {
+  R("#6b4423", x - 1, y - 2, 2, 3);
+  R("#1c6b3a", x - 4, y - 5, 9, 3); R("#1c6b3a", x - 3, y - 8, 7, 3); R("#1c6b3a", x - 2, y - 11, 5, 3); R("#1c6b3a", x - 1, y - 13, 3, 2);
+  R("#fff", x - 4, y - 5, 3, 1); R("#fff", x - 3, y - 8, 2, 1); R("#fff", x - 1, y - 13, 2, 1);
+  R((Math.floor(t / 15) + x) % 2 ? "#ffd54a" : "#ff4d4d", x + 1, y - 7, 1, 1); R("#4aa8ff", x - 2, y - 4, 1, 1);
+}
+const STARS = Array.from({ length: 32 }, (_, i) => [(i * 83) % 240, (i * 47) % 100, i]);
+function drawTitle(selecting) {
+  ["#0a0f2e", "#101a4a", "#182a66", "#24408a"].forEach((c, i) => R(c, 0, i * 30, W, 30));
+  STARS.forEach(([x, y, i]) => { if ((Math.floor(t / 25) + i) % 6) R("#fff", x, y, 1, 1); });
+  R("#fff3c4", 200, 16, 14, 14); R("#fff3c4", 199, 18, 16, 10); R("#e0d49a", 204, 20, 3, 3); R("#e0d49a", 209, 25, 2, 2);
+  for (let x = 0; x < W; x++) {
+    const h = Math.round(122 + 4 * Math.sin(x / 22) + 3 * Math.sin(x / 9));
+    R("#f4f8ff", x, h, 1, H - h); R("#dfe8f5", x, h + 14 + Math.round(2 * Math.sin(x / 15)), 1, H);
+  }
+  [8, 40, 205, 230].forEach((x, i) => pine(x, 128 + (i % 2) * 3));
+  // guirnalda
+  R("#2f3040", 0, 3, W, 1);
+  for (let x = 6; x < W; x += 12) { R(["#ff4d4d", "#ffd54a", "#3bff7a", "#4aa8ff"][(x / 12 + Math.floor(t / 20)) % 4], x, 4, 3, 3); }
+  if (selecting) {
+    const f = FRIENDS[menu ? menu.cur : 0];
+    box(8, 14, 96, 100);
+    drawPerson(f, 24, 24, "down", 0, 4);
+    ctx.textAlign = "center"; txt(f.name, 56, 98, "#c0392b"); ctx.textAlign = "left";
+    return;
+  }
+  const line = [SANTA, ...FRIENDS.slice(0, 6)], sp = Math.min(32, 224 / line.length), x0 = (W - sp * line.length) / 2;
+  line.forEach((p, i) => drawPerson(p, Math.round(x0 + i * sp), 118 + (i % 2) * 6, "down", Math.floor(t / 20 + i) % 3 === 0 ? 1 : 0, 2));
+  ctx.textAlign = "center";
+  ctx.font = BIG;
+  ctx.fillStyle = "#7a1010"; ctx.fillText("SECRET", 122, 24); ctx.fillText("SANTA", 122, 44);
+  ctx.fillStyle = "#ffd54a"; ctx.fillText("SECRET", 120, 22);
+  ctx.fillStyle = "#fff"; ctx.fillText("SANTA", 120, 42);
+  ctx.font = FONT;
+  txt("~ Fiesta de Amigo Secreto ~", 120, 66, "#bfe6ff");
+  if (Math.floor(t / 30) % 2) txt("PULSA ENTER", 120, 88, "#ffd54a");
+  ctx.textAlign = "left";
+  drawSnow();
+}
+function drawWorld() {
+  const cx = clamp(Math.round(player.x) + 8 - W / 2, 0, MW * T - W), cy = clamp(Math.round(player.y) + 8 - H / 2, 0, MH * T - H);
+  for (let y = Math.floor(cy / T); y <= Math.floor((cy + H - 1) / T); y++)
+    for (let x = Math.floor(cx / T); x <= Math.floor((cx + W - 1) / T); x++) {
+      const ch = map[y][x], tile = ch === "." ? TILES.snow[(x * 7 + y * 13) % 3] : ch === "X" ? TILES.snow[0] : TILES[ch];
+      ctx.drawImage(tile, x * T - cx, y * T - cy);
+    }
+  const bx = TREE_X * T - cx, by = TREE_Y * T - cy;
+  ctx.drawImage(BIGTREE, bx, by);
+  TREE_LIGHTS.forEach(([lx, ly], i) => {
+    const on = (Math.floor(t / 18) + i) % 3;
+    R(["#ff4d4d", "#ffd54a", "#4aa8ff", "#3bff7a"][(i + Math.floor(t / 54)) % 4], bx + lx, by + ly, 2, 2);
+    if (!on) R("#fff", bx + lx, by + ly, 1, 1);
+  });
+  [...ents, player].sort((a, b) => a.y - b.y).forEach(e => {
+    const frame = e.moving ? 1 + (e.step % 2) : 0;
+    drawPerson(e.f, Math.round(e.x - cx), Math.round(e.y - cy) - 2, e.dir, frame, 1, e.moving && (e.prog >> 2) % 2 ? 1 : 0);
+  });
+  drawSnow();
+}
+function drawEnd() {
+  ["#0a0f2e", "#101a4a", "#182a66", "#24408a", "#2d4f9c"].forEach((c, i) => R(c, 0, i * 32, W, 32));
+  STARS.forEach(([x, y, i]) => { if ((Math.floor(t / 15) + i) % 4) R("#fff", x, (y * 1.5) | 0, 1, 1); });
+  box(12, 8, 216, 144);
+  ctx.textAlign = "center";
+  txt("¡TU AMIGO SECRETO ES!", 120, 18, "#c0392b");
+  drawPerson(target, 88, 34, "down", Math.floor(t / 15) % 2 ? 0 : 0, 4, 0);
+  ctx.font = BIG; ctx.fillStyle = "#c4c4d0"; ctx.fillText(target.name, 121, 105); ctx.fillStyle = "#1c6b3a"; ctx.fillText(target.name, 120, 104);
+  ctx.font = FONT;
+  txt("¡Shhh! ¡Es un secreto!", 120, 126, "#303040");
+  if (Math.floor(t / 30) % 2) txt("Pulsa ENTER para volver", 120, 138, "#c0392b");
+  ctx.textAlign = "left";
+  confetti.forEach(c => R(c.c, Math.round(c.x), Math.round(c.y), 2, 2));
+}
+function draw() {
+  ctx.textBaseline = "top"; ctx.textAlign = "left"; ctx.font = FONT;
+  if (mode === "title") drawTitle(false);
+  else if (mode === "select") drawTitle(true);
+  else if (mode === "world") { drawWorld(); drawDlg(); }
+  else drawEnd();
+  if (menu) drawMenu(menu);
+  if (fade > 0) { ctx.globalAlpha = fade; R("#000", 0, 0, W, H); ctx.globalAlpha = 1; }
+}
+
+let last = performance.now(), acc = 0;
+(function frame(now) {
+  acc += Math.min(now - last, 100); last = now;
+  while (acc >= 1000 / 60) { update(); acc -= 1000 / 60; }
+  draw(); requestAnimationFrame(frame);
+})(last);
+</script>
+</body>
+</html>

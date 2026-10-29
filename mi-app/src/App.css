@@ -1,0 +1,88 @@
+/* el juego ocupa toda la pantalla; si la proporción no coincide, se centra con barras negras */
+.app {
+  position: fixed;
+  inset: 0;
+  background: #000;
+}
+.app canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: contain;
+  image-rendering: pixelated;
+}
+
+/* joystick táctil: pequeño y translúcido, encima del juego */
+.joystick {
+  display: none;
+  position: absolute;
+  left: 12px;   /* la página ya empieza después de la muesca; sumar el inset lo alejaba de más */
+  bottom: calc(4px + env(safe-area-inset-bottom));
+  width: 104px;
+  height: 104px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.35);
+  border: 2px solid rgba(0, 0, 0, 0.5);
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.knob {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 46px;
+  height: 46px;
+  margin: -23px 0 0 -23px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+}
+.joystick, .confirm { opacity: 0; pointer-events: none; transition: opacity 0.15s; }
+.joystick.show, .confirm.show { opacity: 1; pointer-events: auto; }
+
+/* botón solo para confirmar el personaje (pantalla de elegir) */
+.confirm {
+  display: none;
+  position: absolute;
+  right: calc(10px + env(safe-area-inset-right));
+  bottom: calc(10px + env(safe-area-inset-bottom));
+  padding: 14px 18px;
+  border: 2px solid rgba(0, 0, 0, 0.5);
+  border-radius: 12px;
+  background: rgba(192, 57, 43, 0.75);
+  color: #fff;
+  font: 11px 'Press Start 2P', monospace;
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.confirm:active { background: rgba(150, 40, 30, 0.9); }
+@media (pointer: coarse) {
+  .joystick, .confirm { display: block; }
+}
+
+/* teléfono en vertical: pedir que lo giren */
+.rotate { display: none; }
+@media (pointer: coarse) and (orientation: portrait) {
+  .rotate {
+    position: fixed;
+    inset: 0;
+    z-index: 10;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    background: #0d1117;
+    color: #fff;
+    font-family: 'Press Start 2P', monospace;
+    text-align: center;
+    padding: 24px;
+  }
+  .rotate p { margin: 0; font-size: 16px; color: #ffd54a; }
+  .rotate small { font-size: 9px; line-height: 1.6; color: #bfe6ff; }
+  .rotate-phone { font-size: 64px; animation: giro 2.4s ease-in-out infinite; }
+}
+@keyframes giro {
+  0%, 20% { transform: rotate(0); }
+  60%, 100% { transform: rotate(-90deg); }
+}

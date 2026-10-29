@@ -1,0 +1,74 @@
+{
+ "snowman-a": {
+  "w": 19,
+  "h": 22
+ },
+ "snowman-b": {
+  "w": 15,
+  "h": 22
+ },
+ "snowman-big": {
+  "w": 17,
+  "h": 24
+ },
+ "snowman-small": {
+  "w": 10,
+  "h": 15
+ },
+ "gift-blue-big": {
+  "w": 14,
+  "h": 14
+ },
+ "gift-yellow-big": {
+  "w": 14,
+  "h": 15
+ },
+ "gift-orange-big": {
+  "w": 14,
+  "h": 15
+ },
+ "gift-orange": {
+  "w": 9,
+  "h": 12
+ },
+ "gift-green": {
+  "w": 10,
+  "h": 12
+ },
+ "gift-cyan": {
+  "w": 10,
+  "h": 11
+ },
+ "gift-gold": {
+  "w": 9,
+  "h": 10
+ },
+ "gift-red": {
+  "w": 9,
+  "h": 10
+ },
+ "gift-blue": {
+  "w": 8,
+  "h": 9
+ },
+ "tree-big": {
+  "w": 29,
+  "h": 40
+ },
+ "tree-a": {
+  "w": 19,
+  "h": 26
+ },
+ "tree-b": {
+  "w": 18,
+  "h": 25
+ },
+ "tree-c": {
+  "w": 18,
+  "h": 26
+ },
+ "tree-d": {
+  "w": 19,
+  "h": 25
+ }
+}
